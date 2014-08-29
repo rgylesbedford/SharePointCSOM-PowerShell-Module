@@ -365,6 +365,9 @@ function Update-Web {
             }
         }
 
+        foreach ($listXml in $xml.Lists.RenameList) {
+            Rename-List -OldTitle $listXml.OldTitle -NewTitle $listXml.NewTitle -Web $web -ClientContext $ClientContext
+        }
         foreach ($listXml in $xml.Lists.List) {
             $List = Update-List -ListXml $listXml -Web $web -ClientContext $ClientContext
         }
@@ -389,6 +392,12 @@ function Update-Web {
         if($xml.CustomMasterUrl -or $xml.MasterUrl) {
             Set-MasterPage -CustomMasterUrl $xml.CustomMasterUrl -MasterUrl $xml.MasterUrl -Web $web -ClientContext $ClientContext
         }
+
+        if($xml.NoCrawl) {
+            $noCrawl = [bool]$xml.NoCrawl
+            Update-NoCrawl -NoCrawl $noCrawl -Web $web -ClientContext $ClientContext
+        }
+
         if($xml.ColorPaletteUrl) {
             $FontSchemeUrl = $null
             if($xml.FontSchemeUrl) {
@@ -407,6 +416,54 @@ function Update-Web {
         }
     }
 }
+
+function Remove-RecentNavigationItem {
+    param(
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$Title,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.Web] $web, 
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
+    )
+    process {
+        $nodes = $ClientContext.Web.Navigation.QuickLaunch;
+        $ClientContext.Load($nodes);
+        $ClientContext.ExecuteQuery();
+
+        $recent = $nodes | Where {$_.Title -eq "Recent"}
+        if($recent -ne $null) {
+            $ClientContext.Load($recent.Children);
+            $ClientContext.ExecuteQuery();
+            $recentNode = $recent.Children | Where {$_.Title -eq $Title}
+            if ($recentNode -ne $null) {
+                $recentNode.DeleteObject();
+                $ClientContext.ExecuteQuery();
+            }
+        }
+    }
+}
+
+function Update-NoCrawl {
+    param(
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][bool]$NoCrawl,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.Web] $web, 
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
+    )
+    process {
+        $noCrawlPropName = "NoCrawl"
+        $searchVersionPropName = "vti_searchversion"
+        $oldValue = Get-PropertyBagValue -Key $noCrawlPropName -Web $Web -ClientContext $ClientContext
+        if ([bool]$oldValue -ne $NoCrawl) {
+            Set-PropertyBagValue -Key $noCrawlPropName -Value $NoCrawl -Web $Web -ClientContext $clientContext
+            $searchVersionOld = Get-PropertyBagValue -Key $searchVersionPropName -Web $Web -ClientContext $ClientContext
+            if ($searchVersionOld) {
+                $searchVersionNew = [int]$searchVersionOld + 1
+            } else {
+                $searchVersionNew = 1
+            }
+            Set-PropertyBagValue -Key $searchVersionPropName -Value $searchVersionNew -Web $Web -ClientContext $clientContext
+        }
+    }
+}
+
 <#
 function UnSetup-Web {
     param (

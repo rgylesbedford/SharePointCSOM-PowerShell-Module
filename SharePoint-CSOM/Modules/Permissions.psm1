@@ -9,7 +9,7 @@ function Set-BreakRoleInheritance  {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
     )
     process {
-        $listSecurable.BreakRoleInheritance($copyRoleAssignments, $clearSubscopes)
+        $securableObject.BreakRoleInheritance($copyRoleAssignments, $clearSubscopes)
         $clientContext.ExecuteQuery();
     }
     end {} 
@@ -23,7 +23,7 @@ function Reset-RoleInheritance  {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
     )
     process {
-        $listSecurable.ResetRoleInheritance()
+        $securableObject.ResetRoleInheritance()
         $clientContext.ExecuteQuery();
     }
     end {} 

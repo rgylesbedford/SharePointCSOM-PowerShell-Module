@@ -51,6 +51,14 @@ namespace SharePointClient
             clientContext.ExecuteQuery(); 
 
         } 
+        public static void CreateListRoleAssignment(ClientContext clientContext, Web web, List list, Principal principal, string roleDefName) {
+            RoleDefinitionBindingCollection rdb = new RoleDefinitionBindingCollection(clientContext);
+            rdb.Add(web.RoleDefinitions.GetByName(roleDefName));
+            list.RoleAssignments.Add(principal, rdb);
+            
+            clientContext.ExecuteQuery(); 
+
+        } 
         public static void AddUserToGroup(ClientContext clientContext, Web web, string groupName, string userLoginName) {
             
             var grp = web.SiteGroups.GetByName(groupName);
@@ -63,7 +71,11 @@ namespace SharePointClient
             clientContext.ExecuteQuery(); 
 
         } 
-
+        public static bool ListHasUniqueRoleAssignments(ClientContext clientContext, Web web, List list) {
+            clientContext.Load(list, l => l.HasUniqueRoleAssignments);
+            clientContext.ExecuteQuery(); 
+            return list.HasUniqueRoleAssignments;
+        } 
     }
 }
 "@
