@@ -51,14 +51,6 @@ namespace SharePointClient
             clientContext.ExecuteQuery(); 
 
         } 
-        public static void CreateListRoleAssignment(ClientContext clientContext, Web web, List list, Principal principal, string roleDefName) {
-            RoleDefinitionBindingCollection rdb = new RoleDefinitionBindingCollection(clientContext);
-            rdb.Add(web.RoleDefinitions.GetByName(roleDefName));
-            list.RoleAssignments.Add(principal, rdb);
-            
-            clientContext.ExecuteQuery(); 
-
-        } 
         public static void AddUserToGroup(ClientContext clientContext, Web web, string groupName, string userLoginName) {
             
             var grp = web.SiteGroups.GetByName(groupName);
@@ -71,11 +63,7 @@ namespace SharePointClient
             clientContext.ExecuteQuery(); 
 
         } 
-        public static bool ListHasUniqueRoleAssignments(ClientContext clientContext, Web web, List list) {
-            clientContext.Load(list, l => l.HasUniqueRoleAssignments);
-            clientContext.ExecuteQuery(); 
-            return list.HasUniqueRoleAssignments;
-        } 
+
     }
 }
 "@
@@ -135,13 +123,31 @@ function Add-PreloadedSPTenantdlls {
 
 function Add-InternalDlls {
     param(
-    [parameter(Mandatory=$true, ValueFromPipeline=$true)][string] $assemblyPath
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][string] $assemblyPath,
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool]$loadversion15dlls = $true,
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool]$loadversion16dlls = $false
     )
     process {
+        if($loadversion15dlls) {
+            $spVersion15Dlls = Get-Item "$assemblyPath\15\*.dll"
+    
+            ForEach ($dll in $spVersion15Dlls) {
+                [System.Reflection.Assembly]::LoadFrom($dll.FullName) | Out-Null
+            }
+        } elseif ($loadversion16dlls) {
+            $spVersion16Dlls = Get-Item "$assemblyPath\16\*.dll"
+    
+            ForEach ($dll in $spVersion16Dlls) {
+                [System.Reflection.Assembly]::LoadFrom($dll.FullName) | Out-Null
+            }
+        }
+
         $internalDlls = Get-Item "$assemblyPath\*.dll"
     
         ForEach ($dll in $internalDlls) {
             [System.Reflection.Assembly]::LoadFrom($dll.FullName) | Out-Null
         }
+
+        Add-PSClientContext
     }
 }
