@@ -146,6 +146,7 @@ function New-ListView {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][bool]$Paged,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][bool]$PersonalView,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$Query,
+		[parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$Scope,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][int]$RowLimit,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][string[]]$ViewFields,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$ViewType,
@@ -167,14 +168,19 @@ function New-ListView {
         $vCreation.Paged = $Paged
         $vCreation.PersonalView = $PersonalView
         $vCreation.Query = $Query
+		#$vCreation.Scope = $Scope
         $vCreation.RowLimit = $RowLimit
         $vCreation.SetAsDefaultView = $DefaultView
-        $vCreation.Title = $ViewName
+        $vCreation.Title = $ViewName -replace '\s+', ''
         $vCreation.ViewFields = $ViewFields
         $vCreation.ViewTypeKind = $ViewTypeKind
 
         $view = $list.Views.Add($vCreation)
-        $list.Update()
+
+		$view.Title = $ViewName
+		$view.Update()
+        
+		$list.Update()
         $ClientContext.ExecuteQuery()
         $view
     }
@@ -186,6 +192,7 @@ function Update-ListView {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][bool]$DefaultView,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][bool]$Paged,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$Query,
+		[parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$Scope,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][int]$RowLimit,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][string[]]$ViewFields,
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
@@ -199,6 +206,7 @@ function Update-ListView {
             $view.ViewQuery = $Query
             $view.RowLimit = $RowLimit
             $view.DefaultView = $DefaultView
+			$view.Scope = $Scope
             #Write-Host $ViewFields
             $view.ViewFields.RemoveAll()
             ForEach ($vf in $ViewFields) {
@@ -295,7 +303,7 @@ function New-ListField {
         [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
    )
     process {
-        $field = $list.Fields.AddFieldAsXml($FieldXml, $true, ([Microsoft.SharePoint.Client.AddFieldOptions]::DefaultValue))
+        $field = $list.Fields.AddFieldAsXml($FieldXml, $true, ([Microsoft.SharePoint.Client.AddFieldOptions]::AddFieldInternalNameHint))
         $ClientContext.Load($field)
         $ClientContext.ExecuteQuery()
         $field
@@ -406,8 +414,7 @@ function Update-List {
             }
         }
 
-        
-        Write-Verbose "`tFields" -Verbose
+		Write-Verbose "`tFields" -Verbose
         foreach($field in $listxml.Fields.Field){
             $spField = Get-ListField -List $SPList -FieldName $Field.Name -ClientContext $ClientContext
             if($spField -eq $null) {
@@ -418,33 +425,136 @@ function Update-List {
                 Write-Verbose "`t`tField already added: $($Field.DisplayName)"
             }
         }
+        
+        $ClientContext.Load($SPList.Fields)
+        $ClientContext.ExecuteQuery()
+
         foreach($Field in $listxml.Fields.UpdateField) {
-            $spField = Get-ListField -List $SPList -FieldName $Field.Name -ClientContext $ClientContext
-            $needsUpdate = $false
-            if($Field.ValidationFormula) {
-                $ValidationFormula = $Field.ValidationFormula
-                $ValidationFormula = $ValidationFormula -replace "&lt;","<"
-                $ValidationFormula = $ValidationFormula -replace "&gt;",">"
-                $ValidationFormula = $ValidationFormula -replace "&amp;","&"
-                if($spField.ValidationFormula -ne $ValidationFormula) {
-                    $spField.ValidationFormula = $ValidationFormula
-                    $needsUpdate = $true
-                }
+            $spField = $null
+            if($Field.ID) {
+                $spField = $SPList.Fields | Where {$_.Id -eq $Field.ID}
+            } elseif ($Field.Name) {
+                $spField = Get-ListField -List $SPList -FieldName $Field.Name -ClientContext $ClientContext
             }
 
-            if($Field.ValidationMessage) {
-                if($spField.ValidationMessage -ne $Field.ValidationMessage) {
-                    $spField.ValidationMessage = $Field.ValidationMessage
+            if($spField -ne $null) {
+                $needsUpdate = $false
+
+                if($Field.Required) {
+                    $Required = [bool]::Parse($Field.Required)
+                    if($spField.Required -ne $Required) {
+                        $spField.Required = $Required
+                        Write-Verbose "`t`tUpdating Required for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+                if($Field.EnforceUniqueValues) {
+                    $EnforceUniqueValues = [bool]::Parse($Field.EnforceUniqueValues)
+                    if($spField.EnforceUniqueValues -ne $EnforceUniqueValues) {
+                        $spField.EnforceUniqueValues = $EnforceUniqueValues
+                        Write-Verbose "`t`tUpdating EnforceUniqueValues for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+                if($Field.Indexed) {
+                    $Indexed = [bool]::Parse($Field.Indexed)
+                    if($spField.Indexed -ne $Indexed) {
+                        $spField.Indexed = $Indexed
+                        Write-Verbose "`t`tUpdating Indexed for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+                if($Field.DisplayName) {
+                    if($Field.DisplayName -ne $spField.Title) {
+                        $spField.Title = $Field.DisplayName
+                        Write-Verbose "`t`tUpdating DisplayName for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+				if($Field.Description) {
+                    if($Field.Description -ne $spField.Description) {
+                        $spField.Description = $Field.Description
+                        Write-Verbose "`t`tUpdating Description for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+                if($Field.Formula ) {
+                    $ValidationFormula = $Field.Formula
+                    $ValidationFormula = $ValidationFormula -replace "&lt;","<"
+                    $ValidationFormula = $ValidationFormula -replace "&gt;",">"
+                    $ValidationFormula = $ValidationFormula -replace "&amp;","&"
+                    if($spField.Formula  -ne $ValidationFormula) {
+                        $spField.Formula  = $ValidationFormula
+						Write-Verbose "`t`tUpdating Formula for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+				if($Field.ValidationFormula) {
+                    if($spField.ValidationFormula -ne $Field.ValidationFormula) {
+                        $spField.ValidationFormula = $Field.ValidationFormula
+						Write-Verbose "`t`tUpdating ValidationFormula for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+				if($Field.ValidationMessage) {
+                    if($spField.ValidationMessage -ne $Field.ValidationMessage) {
+                        $spField.ValidationMessage = $Field.ValidationMessage
+						Write-Verbose "`t`tUpdating ValidationMessage for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+                if($Field.ResultType) {
+                    if($spField.OutputType -ne $Field.ResultType) {
+                        $spField.OutputType = $Field.ResultType
+						Write-Verbose "`t`tUpdating OutputType for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+				if($Field.Default) {
+                    if($spField.DefaultValue -ne $Field.Default) {
+                        $spField.DefaultValue = $Field.Default
+						Write-Verbose "`t`tUpdating DefaultValue for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+
+				if($Field.CHOICES) {
+					$choicesList = New-Object 'System.Collections.Generic.List[string]'
+					foreach($Choice in $Field.CHOICES.CHOICE) {
+						$choicesList.Add($Choice)
+					}
+                    Write-Verbose "`t`tUpdating CHOICES for Field: $($Field.DisplayName)" -Verbose
+					$spField.Choices = $choicesList.ToArray()
                     $needsUpdate = $true
                 }
-            }
 
-            if($needsUpdate -eq $true) {
-                $spField.Update()
-                $ClientContext.ExecuteQuery()
-                Write-Verbose "`t`tUpdated Field: $($Field.DisplayName)" -Verbose
-            } else {
-                Write-Verbose "`t`tDid not need to update Field: $($Field.DisplayName)"
+				<#
+				# CSOM does not support this property
+				if($Field.Decimals) {
+                    if($spField.DisplayFormat -ne $Field.Decimals) {
+                        $spField.DisplayFormat = $Field.Decimals
+						Write-Verbose "`t`tUpdating DisplayFormat for Field: $($Field.DisplayName)" -Verbose
+                        $needsUpdate = $true
+                    }
+                }
+				#>
+
+                if($needsUpdate -eq $true) {
+                    $spField.Update()
+                    $ClientContext.ExecuteQuery()
+                    Write-Verbose "`t`tUpdated Field: $($Field.DisplayName)" -Verbose
+                } else {
+                    Write-Verbose "`t`tDid not need to update Field: $($Field.DisplayName)"
+                }
             }
         }
         foreach($Field in $listxml.Fields.RemoveField) {
@@ -452,6 +562,16 @@ function Update-List {
         }
 
         Write-Verbose "`tViews" -Verbose
+        foreach ($view in $listxml.Views.RemoveView) {
+            $spView = Get-ListView -List $SPList -ViewName $view.DisplayName -ClientContext $ClientContext
+            if($spView -ne $null) {
+                $spView.DeleteObject()
+                $SPList.Update()
+                $ClientContext.Load($SPList)
+                $ClientContext.ExecuteQuery()
+                Write-Verbose "`t`tRemoved List View: $($view.DisplayName)" -Verbose
+            }
+        }
         foreach ($view in $listxml.Views.View) {
             $spView = Get-ListView -List $SPList -ViewName $view.DisplayName -ClientContext $ClientContext
             if($spView -ne $null) {
@@ -461,8 +581,9 @@ function Update-List {
                 $RowLimit = $view.RowLimit.InnerText
                 $Query = $view.Query.InnerXml.Replace(" xmlns=`"http://schemas.microsoft.com/sharepoint/`"", "")
                 $ViewFields = $view.ViewFields.FieldRef | Select -ExpandProperty Name
-
-                $spView = Update-ListView -List $splist -ViewName $view.DisplayName -Paged $Paged -Query $Query -RowLimit $RowLimit -DefaultView $DefaultView -ViewFields $ViewFields -ClientContext $ClientContext
+				$Scope = $view.Scope
+				if(!$Scope){$Scope = "DefaultValue"}
+                $spView = Update-ListView -List $splist -ViewName $view.DisplayName -Paged $Paged -Query $Query -Scope $Scope -RowLimit $RowLimit -DefaultView $DefaultView -ViewFields $ViewFields -ClientContext $ClientContext
                 Write-Verbose "`t`tUpdated List View: $($view.DisplayName)" -Verbose
             } else {
             
@@ -472,8 +593,10 @@ function Update-List {
                 $RowLimit = $view.RowLimit.InnerText
                 $Query = $view.Query.InnerXml.Replace(" xmlns=`"http://schemas.microsoft.com/sharepoint/`"", "")
                 $ViewFields = $view.ViewFields.FieldRef | Select -ExpandProperty Name
+				$Scope = $view.Scope
+				if(!$Scope){$Scope = "DefaultValue"}
                 $ViewType = $view.Type
-                $spView = New-ListView -List $splist -ViewName $view.DisplayName -Paged $Paged -PersonalView $PersonalView -Query $Query -RowLimit $RowLimit -DefaultView $DefaultView -ViewFields $ViewFields -ViewType $ViewType -ClientContext $ClientContext
+                $spView = New-ListView -List $splist -ViewName $view.DisplayName -Paged $Paged -PersonalView $PersonalView -Query $Query -Scope $Scope -RowLimit $RowLimit -DefaultView $DefaultView -ViewFields $ViewFields -ViewType $ViewType -ClientContext $ClientContext
                 Write-Verbose "`t`tCreated List View: $($view.DisplayName)" -Verbose
             }
         }
@@ -605,6 +728,22 @@ function Update-List {
             }
         }
 
+		if ($listxml.Validation.InnerText) {
+			if ($SPList.ValidationFormula -ne $listxml.Validation.InnerText) {
+				$SPList.ValidationFormula = $listxml.Validation.InnerText
+				Write-Verbose "`t`tUpdating ValidationFormula"
+                $listNeedsUpdate = $true
+			}
+		}
+
+		if ($listxml.Validation.Message) {
+			if ($SPList.ValidationMessage -ne $listxml.Validation.Message) {
+				$SPList.ValidationMessage = $listxml.Validation.Message
+				Write-Verbose "`t`tUpdating ValidationMessage"
+                $listNeedsUpdate = $true
+			}
+		}
+		
         if($listNeedsUpdate) {
             $SPList.Update()
             $ClientContext.Load($SPList)

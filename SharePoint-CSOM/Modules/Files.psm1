@@ -64,15 +64,31 @@ function Upload-File {
         [parameter(Mandatory=$false, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$RemoteContext,
         [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $MinorVersionsEnabled = $false,
         [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $MajorVersionsEnabled = $false,
-        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $ContentApprovalEnabled = $false
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $ContentApprovalEnabled = $false,
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $CheckOutRequired = $false
     )
     process {
         
         $folderServerRelativeUrl = $Folder.ServerRelativeUrl
-        Write-Verbose "$folderServerRelativeUrl/$($FileXml.Url)" -Verbose
+		$fileRelativeUrl = $folderServerRelativeUrl + "/" + $FileXml.Url
+        Write-Verbose "$($fileRelativeUrl)" -Verbose
+
+		#get file and check it out if necessary
+		if ($CheckOutRequired) {
+			try {
+				#Write-Verbose "`tFile check-out..." -Verbose
+				$file = $ClientContext.web.GetFileByServerRelativeUrl($fileRelativeUrl)
+				$file.CheckOut()
+				$ClientContext.Load($file)
+				$ClientContext.ExecuteQuery()
+			}
+			catch {
+				#Write-Verbose "File not found, could not check it out before uploading." -Verbose
+			}
+		}
 
         $fileCreationInformation = New-Object Microsoft.SharePoint.Client.FileCreationInformation
-        $fileCreationInformation.Url = "$folderServerRelativeUrl/$($FileXml.Url)"
+        $fileCreationInformation.Url = "$($fileRelativeUrl)"
         $fileCreationInformation.Content = Get-ResourceFile -FilePath $FileXml.Path -ResourcesPath $ResourcesPath -RemoteContext $RemoteContext
         if($FileXml.ReplaceContent) {
             $replaceContent = $false
@@ -93,12 +109,14 @@ function Upload-File {
         $ClientContext.ExecuteQuery()
 
         if($file.CheckOutType -ne [Microsoft.SharePoint.Client.CheckOutType]::None) {
+			#Write-Verbose "`tFile check-in..." -Verbose
             $file.CheckIn("Check-in file", [Microsoft.SharePoint.Client.CheckinType]::MinorCheckIn)
             $ClientContext.Load($file)
             $ClientContext.ExecuteQuery()
         }
 
         if($FileXml.Level -eq "Published" -and $MinorVersionsEnabled -and $MajorVersionsEnabled) {
+			#Write-Verbose "`tPublishing..." -Verbose
             $file.Publish("Publishing file")
             $ClientContext.Load($file)
             $ClientContext.ExecuteQuery()
@@ -106,6 +124,7 @@ function Upload-File {
         }
 
         if($FileXml.Approval -eq "Approved" -and $ContentApprovalEnabled) {
+			#Write-Verbose "`tApproving..." -Verbose
             $file.Approve("Approving file")
             $ClientContext.ExecuteQuery()
         }
@@ -122,15 +141,17 @@ function Add-Files {
         [parameter(Mandatory=$false, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$RemoteContext,
         [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $MinorVersionsEnabled = $false,
         [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $MajorVersionsEnabled = $false,
-        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $ContentApprovalEnabled = $false
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $ContentApprovalEnabled = $false,
+        [parameter(Mandatory=$false, ValueFromPipelineByPropertyName = $true)][bool] $CheckOutRequired = $false
     )
     process {
         Write-Verbose "$($folderXml.Path)" -Verbose
+
         foreach($fileXml in $FolderXml.File) {
             Write-Verbose "$($fileXml.Path)"
             $file = Upload-File -Folder $Folder -FileXml $fileXml -ResourcesPath $ResourcesPath `
                         -MinorVersionsEnabled $MinorVersionsEnabled -MajorVersionsEnabled $MajorVersionsEnabled -ContentApprovalEnabled $ContentApprovalEnabled `
-                        -ClientContext $clientContext -RemoteContext $RemoteContext
+                        -ClientContext $clientContext -RemoteContext $RemoteContext -CheckOutRequired $CheckOutRequired
         }
 
         foreach ($ProperyBagValue in $folderXml.PropertyBag.PropertyBagValue) {
@@ -151,7 +172,7 @@ function Add-Files {
             }
             Add-Files -Folder $childFolder -FolderXml $childfolderXml -ResourcesPath $ResourcesPath `
                 -MinorVersionsEnabled $MinorVersionsEnabled -MajorVersionsEnabled $MajorVersionsEnabled -ContentApprovalEnabled $ContentApprovalEnabled `
-                -ClientContext $clientContext -RemoteContext $RemoteContext 
+                -ClientContext $clientContext -RemoteContext $RemoteContext -CheckOutRequired $CheckOutRequired
         }
     }
 }
@@ -187,3 +208,17 @@ function Get-Folder {
         $folderToReturn
     }
 }
+
+function Delete-File {
+    param (
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][string]$ServerRelativeUrl,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true)][Microsoft.SharePoint.Client.ClientContext]$ClientContext
+    )
+    process {
+        $file = $ClientContext.Web.GetFileByServerRelativeUrl($ServerRelativeUrl)
+        $ClientContext.Load($file)
+        $file.DeleteObject()
+        $ClientContext.ExecuteQuery()
+    }
+}
+

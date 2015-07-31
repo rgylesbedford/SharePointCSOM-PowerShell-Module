@@ -133,7 +133,7 @@ function Set-Theme {
             $newImageUrl = "$ServerRelativeUrl/$ImageUrl"
         }
 
-        Write-Verbose "Applying Theme" -Verbose
+        Write-Verbose "Applying Theme for web: $($web.Url)" -Verbose
         if($newImageUrl) {
             $web.ApplyTheme($newThemeUrl, $newFontSchemeUrl, $newImageUrl, $shareGenerated)
         } else {
@@ -317,12 +317,18 @@ function Update-Web {
             Update-ContentTypes -contentTypesXml $xml.ContentTypes -web $web -ClientContext $ClientContext
         }
         foreach ($catalogXml in $xml.Catalogs.Catalog) {
-            $SPList = $web.GetCatalog([Microsoft.SharePoint.Client.ListTemplateType]::$($catalogXml.Type))
+			#get by catalog type vs get by title... if catalogtype specified, use that, otherwise get by title.
+			if ($catalogXml.Type) {
+		        $SPList = $web.GetCatalog([Microsoft.SharePoint.Client.ListTemplateType]::$($catalogXml.Type))
+			} else {
+	            $SPList = $web.Lists.GetByTitle($catalogXml.Title)
+			}
             $ClientContext.Load($SPList)
             $ClientContext.ExecuteQuery()
 
             if($SPList -eq $null) {
-                throw "List not found: $($catalogXml.Title) for List Type: $($catalogXml.Type)"
+                #throw "List not found: $($catalogXml.Title) for List Type: $($catalogXml.Type)"
+                throw "List not found: $($catalogXml.Title)"
             } else {
                 Write-Verbose "List loaded: $($catalogXml.Title)" -Verbose
             }
@@ -331,6 +337,10 @@ function Update-Web {
             $MinorVersionsEnabled = $SPList.EnableMinorVersions
             $ContentApprovalEnabled = $SPList.EnableModeration
             $CheckOutRequired = $SPList.ForceCheckout
+
+			if($CheckOutRequired) {
+	            Write-Verbose "`tNOTE: ForceCheckout enabled, file processing may be slow." -Verbose
+			}
 
             Write-Verbose "`tFiles and Folders" -Verbose
             if($catalogXml.DeleteItems) {
@@ -352,7 +362,7 @@ function Update-Web {
                 $spFolder = Get-RootFolder -List $SPList -ClientContext $ClientContext
                 Add-Files -Folder $spFolder -FolderXml $folderXml -ResourcesPath $ResourcesPath `
                     -MinorVersionsEnabled $MinorVersionsEnabled -MajorVersionsEnabled $MajorVersionsEnabled -ContentApprovalEnabled $ContentApprovalEnabled `
-                    -ClientContext $ClientContext -RemoteContext $RemoteContext
+                    -ClientContext $ClientContext -RemoteContext $RemoteContext -CheckOutRequired $CheckOutRequired
             }
             if($catalogXml.Type -eq "DesignCatalog") {
                 Write-Verbose "`tComposedLooks" -Verbose
@@ -368,14 +378,15 @@ function Update-Web {
         foreach ($listXml in $xml.Lists.RenameList) {
             Rename-List -OldTitle $listXml.OldTitle -NewTitle $listXml.NewTitle -Web $web -ClientContext $ClientContext
         }
+
         foreach ($listXml in $xml.Lists.List) {
             $List = Update-List -ListXml $listXml -Web $web -ClientContext $ClientContext
         }
 
-
         foreach ($PageXml in $xml.Pages.Page) {
             New-PublishingPage -PageXml $PageXml -Web $web -ClientContext $ClientContext
         }
+
         foreach ($ProperyBagValue in $xml.PropertyBag.PropertyBagValue) {
             $Indexable = $false
             if($PropertyBagValue.Indexable) {

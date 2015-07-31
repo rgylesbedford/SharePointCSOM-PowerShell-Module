@@ -121,8 +121,8 @@ function Update-SiteColumns {
                     $updatedField = $true
                     
                 }
-                if($fieldXml.Name -ne $field.StaticName) {
-                    $field.StaticName = $fieldXml.Name
+                if($fieldXml.StaticName -ne $field.StaticName) {
+                    $field.StaticName = $fieldXml.StaticName
                     $updatedField = $true
                 }
                 if($fieldXml.DisplayName -ne $field.Title) {
