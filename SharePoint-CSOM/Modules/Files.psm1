@@ -117,7 +117,7 @@ function Upload-File {
 
         if($FileXml.Level -eq "Published" -and $MinorVersionsEnabled -and $MajorVersionsEnabled) {
 			#Write-Verbose "`tPublishing..." -Verbose
-            $file.Publish("Publishing file")
+            $file.Publish("Published via scripted deployment.")
             $ClientContext.Load($file)
             $ClientContext.ExecuteQuery()
            # $file.CheckIn("Publishing File", [Microsoft.SharePoint.Client.CheckinType]::MajorCheckIn)
